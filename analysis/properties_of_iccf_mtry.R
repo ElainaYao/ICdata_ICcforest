@@ -30,15 +30,15 @@ source("Interpolate.R")
 ##### M: number of simulations
 
 # === Output of the function Pred_width():
-##### params: L2 errors of IC cforest with different values of minsplit, minprob, minbucket,
-#####         with mtry set by default
+##### mtry: L2 errors of IC cforest with different mtry's and tuned mtry, 
+#####       with minsplit, minprob, minbucket set by default
 
 Pred_funct <- function(Nn, distribution, model, C.rate, tt, M){
   C.rate0=0
   RES.L2 <- NULL
-  RES.L2$params <- data.frame(matrix(0, nrow = M, ncol = 8))
-  names(RES.L2$params) <- c("Def","minsplit1","minsplit2","minprob1","minprob2",
-                            "minbucket1","minbucket2","Rule")
+  RES.L2$mtry <- data.frame(matrix(0, nrow = M, ncol = 7))
+  names(RES.L2$mtry) <- c("1","3","4","6","9","10","T")
+
   set.seed(101)
   sampleID <- sort(sample(100000000,M))
   for (mm in 1:M){
@@ -69,40 +69,14 @@ Pred_funct <- function(Nn, distribution, model, C.rate, tt, M){
     
     Formula = as.formula(Surv(L,R,type="interval2")~X1+X2+X3+X4+X5+X6+X7+X8+X9+X10)
     
-    ############################## ------------ Control ------------- ##############################
-    Control = list()
-    ## minsplit  -- the minimum sum of weights in a node in order to be considered for splitting. 20L
-    ## minbucket -- the minimum sum of weights in a terminal node. 7L
-    ## minprob   -- proportion of observations needed to establish a terminal node. 0.01
-    Control[[1]] = partykit::ctree_control(teststat = "quad", testtype = "Univ",
-                                           minsplit = 20L, minprob = 0.01, minbucket = 7L,
-                                           mincriterion = 0)
-    Control[[2]] = partykit::ctree_control(teststat = "quad", testtype = "Univ",
-                                           minsplit = round(Nn*0.15), minprob = 0.01, minbucket = 7L,
-                                           mincriterion = 0)
-    Control[[3]] = partykit::ctree_control(teststat = "quad", testtype = "Univ",
-                                           minsplit = round(Nn*0.20), minprob = 0.01, minbucket = 7L,
-                                           mincriterion = 0)
-    Control[[4]] = partykit::ctree_control(teststat = "quad", testtype = "Univ",
-                                           minsplit = 20L, minprob = 0.05, minbucket = 7L,
-                                           mincriterion = 0)
-    Control[[5]] = partykit::ctree_control(teststat = "quad", testtype = "Univ",
-                                           minsplit = 20L, minprob = 0.10, minbucket = 7L,
-                                           mincriterion = 0)
-    Control[[6]] = partykit::ctree_control(teststat = "quad", testtype = "Univ",
-                                           minsplit = 20L, minprob = 0.01, minbucket = round(Nn*0.06),
-                                           mincriterion = 0)
-    Control[[7]] = partykit::ctree_control(teststat = "quad", testtype = "Univ",
-                                           minsplit = 20L, minprob = 0.01, minbucket = round(Nn*0.08),
-                                           mincriterion = 0)
-    Control[[8]] = partykit::ctree_control(teststat = "quad", testtype = "Univ",
-                                           minsplit = round(Nn*0.15), minprob = 0.01, minbucket = round(Nn*0.06),
-                                           mincriterion = 0)
-    nControl = length(Control)
-    
-    for (j in 1:nControl){
-      IC.cforest <- ICcforest(Formula, data = DATA, mtry = ceiling(sqrt(10)), Control = Control[[j]])
-      print(sprintf("L2 - IC Forest %1.0f...",j))
+    ############################## ------------ mtry ------------- ##############################
+    mtrypool <- c(1,3,4,6,9,10)
+    for (j in 1:length(mtrypool)){
+      IC.cforest <- ICcforest(Formula, data = DATA, mtry = mtrypool[j], 
+                              Control = partykit::ctree_control(teststat = "quad", testtype = "Univ",
+                                                                minsplit = 20L, minprob = 0.01, minbucket = 7L,
+                                                                mincriterion = 0))
+      print(sprintf("L2 - IC cforest mtry = %1.0f...",mtrypool[j]))
       Pred.IC.cforest <- predict(IC.cforest, type="prob")
       L2 <- c()
       for(i in 1:nrow(DATA)){
@@ -110,17 +84,33 @@ Pred_funct <- function(Nn, distribution, model, C.rate, tt, M){
         Cur <- DATA[i,"Class"]
         L2 <- c(L2, Loss.func(Cur, Km, time.uniq))
       }
-      RES.L2$params[mm,j] <- mean(L2)
+      RES.L2$mtry[mm,j] <- mean(L2)
       rm(IC.cforest)
       rm(Pred.IC.cforest)
+    }    
+    
+    print(sprintf("L2 - IC cforest mtry is being tuned..."))
+    IC.cforest <- ICcforest(Formula, data = DATA, 
+                            Control = partykit::ctree_control(teststat = "quad", testtype = "Univ",
+                                                              minsplit = 20L, minprob = 0.01, minbucket = 7L,
+                                                              mincriterion = 0))
+    Pred.IC.cforest <- predict(IC.cforest, type="prob")
+    L2 <- c()
+    for(i in 1:nrow(DATA)){
+      Km <- Pred.IC.cforest[[i]]
+      Cur <- DATA[i,"Class"]
+      L2 <- c(L2, Loss.func(Cur, Km, time.uniq))
     }
-    print("=======IC.cforest for three parameters are done...") 
+    RES.L2$mtry[mm,7] <- mean(L2)
+    rm(IC.cforest)
+    rm(Pred.IC.cforest)
+    print("=======IC.cforest for different mtry's are done...") 
   }
   return(RES.L2)
 }  
 
 
-##### === Comparison of IC cforest with different values of minsplit, minprob, minbucket ==== ######
+############### === Comparison of IC cforest with different mtry's and mtry tuned ==== ################
 ##### N = 200, no right-censoring, censoring interval width generated from G1
 L2.Bat.m1.c0.tt1 <- Pred_funct(Nn = 200, distribution = "Bat", model = 1, C.rate = 0, tt = 1, M = 500)
 L2.Bat.m2.c0.tt1 <- Pred_funct(Nn = 200, distribution = "Bat", model = 2, C.rate = 0, tt = 1, M = 500)
